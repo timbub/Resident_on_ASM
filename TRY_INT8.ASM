@@ -4,16 +4,12 @@ org 100h
 
 start:
 
-
-	OldSegment dw 0
-	OldOffset dw 0
 	VIDEOSEG equ 0b800h
+	call SaveInt08_09
 
 	xor ax, ax
 	mov es, ax
 	mov di, 09h * 4
-
-call SaveInt
 
 	cli
 	mov es:[di], offset New09
@@ -28,40 +24,35 @@ call SaveInt
 	inc dx
 	int 21h
 
-SaveInt proc
+;--------------------------------
+SaveInt08_09 proc
+	cli
+	mov ah, 35h
+ 	mov al, 9
+	int 21h						; get 09h in es:bx
 
-	mov ax, word ptr es:[di]
-        mov [OldOffset], ax
-        mov ax, word ptr es:[di + 2]
-        mov [OldSegment], ax
+	mov oldseg09, es
+	mov oldoff09, bx
+
+	sti
 
 	ret
 	endp
+;--------------------------------
 
-ReturnOldInt proc
-
-cli
-    mov ax, OldOffset
-    mov word ptr es:[di], ax
-    mov ax, OldSegment
-    mov word ptr es:[di + 2], ax
-sti
-	ret
-	endp
-
+;--------------------------------
 New09 proc
 	push ax bx es
 	mov ax, VIDEOSEG
 	mov es, ax
-	mov di, 5*80*2 + 40*2
+	mov bx, 160*5 + 80
 
 	in al, 60h
-	mov byte ptr es:[di], 'a'
+	cmp al, 16d                    ; code 'Q'
+	jne SkipDrawFrame
 
-	xor ax, ax
-	mov es, ax
-	mov di, 09h* 4
-	call ReturnOldInt
+	mov byte ptr es:[bx], 'a'
+	;call PrintFrame
 
 	in al, 61h
 	or al, 80h
@@ -72,10 +63,207 @@ New09 proc
 	mov al, 20h
 	out 20h, al
 
+SkipDrawFrame:
 	pop es bx ax
+
+	db 0eah
+	oldoff09 dw 0
+	oldseg09 dw 0
 
 	iret
 	endp
+;------------------------------------
+
+;------------------------------------
+PrintFrame proc
+	mov si, offset String
+
+	call GraphMode
+	mov di, 80*27
+
+	call ProcessingLW
+	mov bx, ax
+	sub di, bx
+	sub bx, 2
+	call ProcessingLW
+	push ax
+	shr ax, 1
+	shl ax, 1
+
+	mov cx, 80d
+	mul cx
+
+	sub di, ax                         ; starting position
+	shr di, 1
+	shl di, 1
+    div cx
+
+	pop ax
+	mov dx, ax
+	sub dx, 2
+
+call DrawFrame
+	ret
+	endp
+
+;--------------------------------------
+;Length/Weight Processing
+;Entry: SI - address of command line
+;Exit:  AX - Length/Weight of frame
+;Destroy: CX, AX, DX
+;--------------------------------------
+ProcessingLW proc
+	xor ax, ax
+	xor cx, cx
+start_processing:
+	mov cl, [si]
+
+	cmp cl, 13                    ; cmp with Entry
+	je end_processing
+
+	cmp cl, ' '
+	je end_processing
+
+	sub cl, '0'
+	mov dx, 10
+	mul dx
+	add ax, cx
+	inc si
+	jmp start_processing
+
+end_processing:
+	inc si
+	ret
+	endp
+;--------------------------------------
+
+;--------------------------------------
+;Draw a Line of frame
+;Entry: ES:DI - line beginning addr
+;	   SI    - address of the  string
+;Exit:
+;Destroy: CX, AX
+;Length = 30
+;--------------------------------------
+DrawLine proc
+	lodsb
+	stosw
+	mov cx, bx
+	mov byte ptr es:[di-1], 01001100b
+DrawL:
+	lodsb
+	dec si
+	stosw
+	mov byte ptr es:[di-1], 01001100b
+
+	LOOP DrawL
+
+	inc si
+	lodsb
+        dec si
+	stosw
+	mov byte ptr es:[di-1], 01001100b
+
+	sub si, 2d
+
+	add bx, 2
+	shl bx, 1
+	sub di, bx                     ; return to start position
+	shr bx, 1
+	sub bx, 2
+	ret
+	endp
+;--------------------------------------
+
+;--------------------------------------
+; Draw Frame
+; Entry: SI    - address of the string
+;	 ES:DI - line beginning addr
+; Exit:
+; Destroy: CX, AX, BX
+; Width = 11
+;--------------------------------------
+DrawFrame proc
+
+call DrawLine
+	mov cx, dx
+	add di, 160d                ; new line
+	add si, 3d
+DrStrs:
+	push cx
+	call DrawLine
+	add di, 160d              ; new line
+	pop cx
+	LOOP DrStrs
+	add si, 3d
+
+call DrawLine
+	add si, 4d
+call DrawString
+
+	ret
+	endp
+;--------------------------------------
+
+;--------------------------------------
+;Draw String in Frame
+;Entry: SI
+;Exit:
+;Destroy: CX, DI, SI
+;--------------------------------------
+DrawString proc
+
+	call LengthString
+	call GraphMode
+	mov di, 2160        ; start position for string
+	sub di, cx
+	shr di, 1
+	shl di, 1
+DrStr:
+	lodsb
+	stosw
+	mov byte ptr es:[di-1], 10011010b
+	LOOP DrStr
+
+	ret
+	endp
+;--------------------------------------
+
+;--------------------------------------
+;Length of string
+;Entry: ES:[DI] - line beginning addr
+;       AX      - ASCII code '$'
+;Exit: CX - length
+;Destroy:
+;--------------------------------------
+LengthString proc
+	mov ax, ds
+	mov es, ax
+	mov di, si
+	mov al, '$'
+
+	xor cx, cx
+	dec cx
+
+	repne scasb
+	neg cx
+	sub cx, 2
+
+	ret
+	endp
+;--------------------------------------
+
+;--------------------------------------
+;GraphMode
+;--------------------------------------
+GraphMode proc
+	mov di, 0b800h
+	mov es, di
+	ret
+	endp
+;--------------------------------------
+
+String: db '30 10 *-*I I[-] HELLO$'
 EOP:
 
 end start
