@@ -6,6 +6,16 @@ start:
 
 	VIDEOSEG equ 0b800h
 	call SaveInt08_09
+	call ChangeInt08_09
+
+	mov ax, 3100h
+	mov dx, offset EOP
+	shr dx, 4
+	inc dx
+	int 21h
+
+;--------------------------------
+ChangeInt08_09 proc
 
 	xor ax, ax
 	mov es, ax
@@ -16,13 +26,19 @@ start:
 	push cs
 	pop ax
 	mov es:[di + 2], ax
+
+	mov di, 08h * 4
+
+	mov es:[di], offset New08
+	push cs
+	pop ax
+	mov es:[di + 2], ax
+
 	sti
 
-	mov ax, 3100h
-	mov dx, offset EOP
-	shr dx, 4
-	inc dx
-	int 21h
+	ret
+	endp
+;--------------------------------
 
 ;--------------------------------
 SaveInt08_09 proc
@@ -34,6 +50,13 @@ SaveInt08_09 proc
 	mov oldseg09, es
 	mov oldoff09, bx
 
+	mov ah, 35h
+ 	mov al, 8
+	int 21h						; get 08h in es:bx
+
+	mov oldseg08, es
+	mov oldoff08, bx
+
 	sti
 
 	ret
@@ -41,18 +64,40 @@ SaveInt08_09 proc
 ;--------------------------------
 
 ;--------------------------------
-New09 proc
-	push ax bx es
+New08 proc
+	push ax bx cx es
+	mov bx, offset FlagForInt
+	cmp byte ptr [bx], 1d
+	jne SkipDraw
 	mov ax, VIDEOSEG
 	mov es, ax
 	mov bx, 160*5 + 80
+	mov byte ptr es:[bx], 'a'
+SkipDraw:
+	pop es cx bx ax
+
+	db 0eah
+	oldoff08 dw 0
+	oldseg08 dw 0
+
+	iret
+	endp
+;--------------------------------
+
+;--------------------------------
+New09 proc
+	push ax bx cx es
+	;mov ax, VIDEOSEG
+	;mov es, ax
+	;mov bx, 160*5 + 80
 
 	in al, 60h
 	cmp al, 16d                    ; code 'Q'
-	jne SkipDrawFrame
+	jne WrongSymbol
 
-	mov byte ptr es:[bx], 'a'
-	;call PrintFrame
+	;mov byte ptr es:[bx], 'a'
+	mov bx, offset FlagForInt
+	mov byte ptr [bx], 1d           ; flag = true
 
 	in al, 61h
 	or al, 80h
@@ -63,8 +108,9 @@ New09 proc
 	mov al, 20h
 	out 20h, al
 
-SkipDrawFrame:
-	pop es bx ax
+WrongSymbol:
+	;mov FlagForInt, 0
+	pop es cx bx ax
 
 	db 0eah
 	oldoff09 dw 0
@@ -74,8 +120,7 @@ SkipDrawFrame:
 	endp
 ;------------------------------------
 
-;------------------------------------
-PrintFrame proc
+MainPrintFrame proc
 	mov si, offset String
 
 	call GraphMode
@@ -160,7 +205,7 @@ DrawL:
 
 	inc si
 	lodsb
-        dec si
+    dec si
 	stosw
 	mov byte ptr es:[di-1], 01001100b
 
@@ -263,7 +308,8 @@ GraphMode proc
 	endp
 ;--------------------------------------
 
-String: db '30 10 *-*I I[-] HELLO$'
+String: db '10 10 *-*I I*-* HELLO$'
+FlagForInt: db 0
 EOP:
 
 end start
