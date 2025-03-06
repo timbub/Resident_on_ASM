@@ -65,16 +65,37 @@ SaveInt08_09 proc
 
 ;--------------------------------
 New08 proc
-	push ax bx cx es
+	push si ax bx cx es ds
+
 	mov bx, offset FlagForInt
 	cmp byte ptr [bx], 1d
 	jne SkipDraw
 	mov ax, VIDEOSEG
 	mov es, ax
-	mov bx, 160*5 + 80
-	mov byte ptr es:[bx], 'a'
+	mov bx, 160*7 + 40
+
+	push cs
+	pop ds
+
+	mov si, offset String
+
+print_string:
+
+	cmp byte ptr [si], '$'
+	je skip_string
+
+	mov al, [si]
+	mov byte ptr es:[bx], al
+	mov byte ptr es:[bx+1], 0001111b
+	add bx, 2
+	inc si
+	jmp print_string
+
+skip_string:
+	;call MainPrintFrame
+	;mov byte ptr es:[bx], 'a'
 SkipDraw:
-	pop es cx bx ax
+	pop ds es cx bx ax si
 
 	db 0eah
 	oldoff08 dw 0
@@ -87,15 +108,12 @@ SkipDraw:
 ;--------------------------------
 New09 proc
 	push ax bx cx es
-	;mov ax, VIDEOSEG
-	;mov es, ax
-	;mov bx, 160*5 + 80
 
 	in al, 60h
 	cmp al, 16d                    ; code 'Q'
 	jne WrongSymbol
 
-	;mov byte ptr es:[bx], 'a'
+
 	mov bx, offset FlagForInt
 	mov byte ptr [bx], 1d           ; flag = true
 
@@ -121,7 +139,7 @@ WrongSymbol:
 ;------------------------------------
 
 MainPrintFrame proc
-	mov si, offset String
+	mov si, offset Frame
 
 	call GraphMode
 	mov di, 80*27
@@ -173,7 +191,7 @@ start_processing:
 	mov dx, 10
 	mul dx
 	add ax, cx
-	inc si
+	dec si
 	jmp start_processing
 
 end_processing:
@@ -308,8 +326,11 @@ GraphMode proc
 	endp
 ;--------------------------------------
 
-String: db '10 10 *-*I I*-* HELLO$'
+String db 'HELLO$'
+Frame: db '10 10 *-*I I*-* HELLO$'
 FlagForInt: db 0
+
+
 EOP:
 
 end start
