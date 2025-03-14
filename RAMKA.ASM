@@ -3,8 +3,8 @@
 org 100h
 
 start:
-	mov si, 81h
-	inc si
+	mov si, offset String ;81h
+	;inc si
 
 	call GraphMode
 	mov di, 80*27
@@ -24,7 +24,7 @@ start:
 	sub di, ax                         ; starting position
 	shr di, 1
 	shl di, 1
-        div cx
+    div cx
 
 	pop ax
 	mov dx, ax
@@ -190,4 +190,6 @@ GraphMode proc
 	ret
 	endp
 ;--------------------------------------
+
+String: db '30 10 *-*I I[-] HELLO$'
 end start

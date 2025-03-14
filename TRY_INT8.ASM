@@ -4,7 +4,11 @@ org 100h
 
 start:
 
-	VIDEOSEG equ 0b800h
+	VIDEOSEG     equ  0b800h
+	COUNT_REG    equ 10d
+	LENGTH_REG   equ 4d
+	WEIGHT_FRAME equ 16d
+	LENGHT_FRAME equ 12d
 	call SaveInt08_09
 	call ChangeInt08_09
 
@@ -65,37 +69,17 @@ SaveInt08_09 proc
 
 ;--------------------------------
 New08 proc
-	push si ax bx cx es ds
+	push ax bx cx dx es ds si
 
 	mov bx, offset FlagForInt
 	cmp byte ptr [bx], 1d
 	jne SkipDraw
-	mov ax, VIDEOSEG
-	mov es, ax
-	mov bx, 160*7 + 40
+	call MainPrintFrame
+	push ax bx cx dx es ds di si bp sp
+	call PrintRegisters
 
-	push cs
-	pop ds
-
-	mov si, offset String
-
-print_string:
-
-	cmp byte ptr [si], '$'
-	je skip_string
-
-	mov al, [si]
-	mov byte ptr es:[bx], al
-	mov byte ptr es:[bx+1], 0001111b
-	add bx, 2
-	inc si
-	jmp print_string
-
-skip_string:
-	;call MainPrintFrame
-	;mov byte ptr es:[bx], 'a'
 SkipDraw:
-	pop ds es cx bx ax si
+	pop si ds es dx cx bx ax
 
 	db 0eah
 	oldoff08 dw 0
@@ -107,7 +91,7 @@ SkipDraw:
 
 ;--------------------------------
 New09 proc
-	push ax bx cx es
+	push ax bx cx es               ; save reg
 
 	in al, 60h
 	cmp al, 16d                    ; code 'Q'
@@ -117,8 +101,10 @@ New09 proc
 	mov bx, offset FlagForInt
 	mov byte ptr [bx], 1d           ; flag = true
 
+WrongSymbol:
+
 	in al, 61h
-	or al, 80h
+	or al, 80h						;
 	out 61h, al
 	and al, 7fh
 	out 61h, al
@@ -126,7 +112,6 @@ New09 proc
 	mov al, 20h
 	out 20h, al
 
-WrongSymbol:
 	;mov FlagForInt, 0
 	pop es cx bx ax
 
@@ -139,66 +124,38 @@ WrongSymbol:
 ;------------------------------------
 
 MainPrintFrame proc
+
+	push cs
+	pop ds
 	mov si, offset Frame
 
 	call GraphMode
 	mov di, 80*27
 
-	call ProcessingLW
-	mov bx, ax
-	sub di, bx
-	sub bx, 2
-	call ProcessingLW
-	push ax
-	shr ax, 1
-	shl ax, 1
 
-	mov cx, 80d
-	mul cx
+	mov bx, WEIGHT_FRAME				;
+	sub di, bx							;
+	sub bx, 2							;
+	mov ax, LENGHT_FRAME				;
+	push ax								;
+	shr ax, 1							;
+	shl ax, 1							; Centering frame
+										;
+	mov cx, 80d							;
+	mul cx								;
 
-	sub di, ax                         ; starting position
-	shr di, 1
-	shl di, 1
-    div cx
+	sub di, ax                          ;
+	shr di, 1							;
+	shl di, 1							;
+    div cx								;
 
-	pop ax
-	mov dx, ax
-	sub dx, 2
+	pop ax								;
+	mov dx, ax							;
+	sub dx, 2							;
 
 call DrawFrame
 	ret
 	endp
-
-;--------------------------------------
-;Length/Weight Processing
-;Entry: SI - address of command line
-;Exit:  AX - Length/Weight of frame
-;Destroy: CX, AX, DX
-;--------------------------------------
-ProcessingLW proc
-	xor ax, ax
-	xor cx, cx
-start_processing:
-	mov cl, [si]
-
-	cmp cl, 13                    ; cmp with Entry
-	je end_processing
-
-	cmp cl, ' '
-	je end_processing
-
-	sub cl, '0'
-	mov dx, 10
-	mul dx
-	add ax, cx
-	dec si
-	jmp start_processing
-
-end_processing:
-	inc si
-	ret
-	endp
-;--------------------------------------
 
 ;--------------------------------------
 ;Draw a Line of frame
@@ -241,7 +198,7 @@ DrawL:
 ;--------------------------------------
 ; Draw Frame
 ; Entry: SI    - address of the string
-;	 ES:DI - line beginning addr
+;	     ES:DI - line beginning addr
 ; Exit:
 ; Destroy: CX, AX, BX
 ; Width = 11
@@ -261,76 +218,83 @@ DrStrs:
 	add si, 3d
 
 call DrawLine
-	add si, 4d
-call DrawString
 
 	ret
 	endp
 ;--------------------------------------
 
 ;--------------------------------------
-;Draw String in Frame
-;Entry: SI
-;Exit:
-;Destroy: CX, DI, SI
+;PrintReg
 ;--------------------------------------
-DrawString proc
+PrintRegisters proc
+push bp							; save bp
+mov bp, sp						; bp to top stack
 
-	call LengthString
-	call GraphMode
-	mov di, 2160        ; start position for string
-	sub di, cx
-	shr di, 1
-	shl di, 1
-DrStr:
-	lodsb
-	stosw
-	mov byte ptr es:[di-1], 10011010b
-	LOOP DrStr
+call GraphMode
+mov di, 80*17 - 4*2				; centering text
 
-	ret
-	endp
-;--------------------------------------
+mov cx, COUNT_REG
+mov dx, COUNT_REG*2 + 2
+add bp, dx
+mov si, offset PrintReg
+DrReg:
 
-;--------------------------------------
-;Length of string
-;Entry: ES:[DI] - line beginning addr
-;       AX      - ASCII code '$'
-;Exit: CX - length
-;Destroy:
-;--------------------------------------
-LengthString proc
-	mov ax, ds
-	mov es, ax
-	mov di, si
-	mov al, '$'
+cmp byte ptr ds:[si], "$"
+je PrintValueReg
+lodsb
+stosw							; print "REG = ..."
+mov byte ptr es:[di-1], 01001010b
+jmp DrReg
 
-	xor cx, cx
-	dec cx
+PrintValueReg:
+inc si
 
-	repne scasb
-	neg cx
-	sub cx, 2
+mov ax, [bp]
+push cx
+mov cx, LENGTH_REG
 
-	ret
-	endp
-;--------------------------------------
+GetValueReg:
+push ax
+and ax, 1111b
+cmp ax, 9h
+ja LITERA
+jmp DIGIT
+
+LITERA:
+	add ax, 41h
+	sub ax, 0ah
+DIGIT:
+	add ax, 30h					   ; + ASCII '0'
+
+mov es:[di], ax
+mov byte ptr es:[di-1], 01001010b
+pop ax
+shr ax, 4
+add di, 2
+LOOP GetValueReg
+
+pop cx
+sub bp, 2
+sub di, 10*2						; return to old position
+add di, 160d					    ; new len
+LOOP DrReg
+
+pop bp
+ret 2*COUNT_REG
+endp
 
 ;--------------------------------------
 ;GraphMode
 ;--------------------------------------
 GraphMode proc
-	mov di, 0b800h
+	mov di, VIDEOSEG
 	mov es, di
 	ret
 	endp
 ;--------------------------------------
 
-String db 'HELLO$'
-Frame: db '10 10 *-*I I*-* HELLO$'
+Frame db '*-*I I[-]'
+PrintReg db 'AX = $BX = $CX = $DX = $ES = $DS = $DI = $SI = $BP = $SP = $'
 FlagForInt: db 0
-
-
 EOP:
-
 end start
